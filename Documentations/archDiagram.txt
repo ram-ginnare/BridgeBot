@@ -1,0 +1,9 @@
+
+(1) rag_ingest_pipeline_architecture.png
+The architecture splits cleanly into two flows: building the knowledge base, 
+and answering a question. Here's the first one — what happens when you click Build / Update
+ Knowledge Base:
+
+(2) rag_query_answer_architecture.png
+ Now the second flow — what happens every time a user asks a question, including the confidence-based
+  branch between answering from documents versus falling back to the web:

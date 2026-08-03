@@ -1,0 +1,64 @@
+
+
+Provides a small wrapper around the ``ddgs`` (DuckDuckGo) search client that the RAG pipeline 
+can call at runtime. Exposes two functions used by the app:
+- ``web_search(query)`` -> list[dict]
+- ``format_web_context(web_results)`` -> str
+
+- In a RAG chatbot, this is typically used as a web fallback when your document search
+ (FAISS + BM25 + reranker) does not find a confident answer.
+
+(1) web_search
+    Example:
+
+        query = "Latest AI news"
+        max_results = 3
+
+        DuckDuckGo may return:
+
+            results = [
+                {
+                    "title": "AI Breakthrough in 2026",
+                    "href": "https://news.com/ai-breakthrough",
+                    "body": "Researchers developed a new AI model..."
+                },
+                {
+                    "title": "Open Source AI Updates",
+                    "href": "https://example.com/opensource-ai",
+                    "body": "New AI tools were released..."
+                }
+            ]
+        list() converts the search generator into a Python list.
+
+(2) format_web_context
+    - Takes web_results (a list of dictionaries).
+    - Returns a single string.
+
+    -  format_web_context
+    -web_results = [
+        {
+            "title": "Python Tutorial",
+            "href": "https://python.org",
+            "body": "Python is a popular programming language..."
+        }
+    ]
+
+(3) Limit the Length of the Content
+    snippet = (body[:1000] + "...") if len(body) > 1000 else body
+
+    - Keeps only the first 1000 characters of the web page summary. Adds ... if the text is longer.
+    - Prevents very long prompts.
+    - Reduces LLM token usage and cost.
+
+            Web Search Results
+                ↓
+        Extract title, URL, body
+                ↓
+        Limit body to 1000 characters
+                ↓
+        Create formatted blocks
+                ↓
+        Combine all blocks into one string
+                ↓
+        Send as context to LLM
+

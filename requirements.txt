@@ -1,0 +1,16 @@
+streamlit
+groq
+faiss-cpu
+sentence-transformers
+rank-bm25
+pypdf
+python-docx
+#duckduckgo-search
+ddgs
+python-dotenv
+numpy
+torchvision
+
+
+
+

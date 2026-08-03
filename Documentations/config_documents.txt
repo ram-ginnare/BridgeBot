@@ -1,0 +1,325 @@
+# config.py and .env preparation
+
+- It stores all configuration settings for the RAG chatbot.
+- Values can be changed using a .env file or OS environment variables.
+
+
+
+(1) import os
+- Provides functions to interact with the operating system.
+- Used here to read environment variables.
+
+(2) from pathlib import Path
+- Helps work with file and folder paths in a platform-independent way.
+
+(3) from dotenv import load_dotenv
+- Loads variables from a .env file into the application.
+
+(4) ENV_PATH = Path(__file__).resolve().parent / ".env"
+- Locate the .env File
+- Ensures the application always finds the correct .env file.
+
+Breakdown:
+__file__ → Current Python file path (config.py)
+.resolve() → Gets the absolute path
+.parent → Gets the folder containing config.py
+/" .env" → Points to the .env file in the same folder
+
+Example:
+Project/
+ ├── config.py
+ └── .env
+
+Result:
+ENV_PATH = Project/.env
+
+(5) GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    - os.getenv() → Reads an environment variable.
+    - "GROQ_MODEL" → Name of the variable to look for in .env or system environment.
+    - "llama-3.3-70b-versatile" → Default value if GROQ_MODEL is not found.
+    - GROQ_MODEL=llama-3.3-70b-versatile
+    - Defines which Large Language Model (LLM) the chatbot uses to generate answers.
+        This model is called through the Groq API.
+
+(6) EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+    - Looks for EMBEDDING_MODEL_NAME in .env.
+    - If not available, uses "all-MiniLM-L6-v2".
+    - Converts text into vectors (numbers) called embeddings.
+    - These vectors are stored in the vector database (like FAISS) and used to find similar documents.
+
+(7) RERANKER_MODEL_NAME = os.getenv("RERANKER_MODEL_NAME", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+    - Checks for RERANKER_MODEL_NAME in .env.
+    - Uses "cross-encoder/ms-marco-MiniLM-L-6-v2" if not found.
+    - Improves search accuracy by re-ranking the documents returned from FAISS/BM25.
+    - It calculates how relevant each document chunk is to the user’s question.
+
+    Example:
+
+    Initial retrieval:
+
+        User Query:
+        "What is dependency injection?"
+
+        FAISS returns:
+        1. Dependency Injection in .NET (75%)
+        2. Database Connection (70%)
+        3. API Security (65%)
+
+        Reranker re-evaluates:
+
+        1. Dependency Injection in .NET (98%) ✅
+        2. API Security (35%)
+        3. Database Connection (20%)
+
+        The best chunks are then sent to the LLM.
+
+(8) Data Folder
+
+    DATA_DIR = os.getenv("DATA_DIR", "data")
+    - Reads the DATA_DIR value from .env.
+    - If not available, uses the default folder "data".
+
+    Purpose:
+    - Stores original documents like PDFs, TXT, DOCX, etc.
+
+    Example:
+
+            project/
+            ├── data/
+            │    ├── Python.pdf
+            │    └── AI_notes.docx
+
+(9) Vector Store Folder
+
+    VECTORSTORE_DIR = os.getenv("VECTORSTORE_DIR", "vectorstore")
+    -Reads VECTORSTORE_DIR from .env.
+    - Default folder is "vectorstore".
+
+    Purpose:
+    - Stores all files related to vector search.
+    Example:
+        - vectorstore/
+
+(10) FAISS Index File
+     FAISS_INDEX_PATH = os.path.join(VECTORSTORE_DIR, "index.faiss")
+
+    Breakdown:
+    - os.path.join() safely joins folder and file names.
+    - Creates the path:
+    - vectorstore/index.faiss
+
+    Purpose:
+    - Stores the FAISS vector index.
+    - Contains the embeddings of document chunks for fast similarity search.
+
+(11) Metadata File
+    METADATA_PATH = os.path.join(VECTORSTORE_DIR, "metadata.pkl")
+
+    Creates:
+    - vectorstore/metadata.pkl
+
+    Purpose:
+    - Stores metadata about the vectors.
+    - This helps map a vector back to the actual document content.
+
+    Examples:
+        Original document name
+        Chunk text
+        Page number
+        Chunk ID
+
+(12) BM25 Search File
+    BM25_PATH = os.path.join(VECTORSTORE_DIR, "bm25.pkl")
+
+    Creates:
+    - vectorstore/bm25.pkl
+
+    Purpose:
+    - Stores the BM25 keyword search index.
+    - Used for traditional text matching.
+    - It is usually combined with FAISS for hybrid search.
+
+    Example: Query: "What is .NET dependency injection?"
+    - BM25 searches for exact keywords:
+    - .NET, dependency, injection
+
+(13) Log File
+    LOG_FILE = os.getenv("LOG_FILE", "rag_app.log")
+   
+    - Reads the log file name from .env.
+        Default file is:    rag_app.log
+
+    Purpose:
+    - Stores application logs.
+
+    Examples:
+        Application started
+        Document uploaded
+        Errors/exceptions
+        API calls
+        Debug information
+
+    Example:
+        - 2026-06-21 10:00:15 - INFO - Application started
+        - 2026-06-21 10:05:22 - ERROR - GROQ API key missing
+
+(14) Overall Folder Structure
+        RAG Project/
+        │
+        ├── data/                  ← Original documents
+        │
+        ├── vectorstore/
+        │    ├── index.faiss       ← Document vectors
+        │    ├── metadata.pkl      ← Chunk details
+        │    └── bm25.pkl          ← Keyword search index
+        │
+        ├── rag_app.log            ← Application logs
+        ├── config.py
+        └── .env
+
+(15) In simple words:
+        DATA_DIR → Stores uploaded documents.
+        VECTORSTORE_DIR → Main folder for search indexes.
+        index.faiss → Stores document embeddings (semantic search).
+        metadata.pkl → Stores information about chunks/documents.
+        bm25.pkl → Stores keyword search data.
+        rag_app.log → Stores application activity and errors.
+
+        These files together enable a hybrid RAG search system (FAISS + BM25 + metadata + logs).
+
+(16) Chunk Size
+    CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 500))
+        
+        - Reads CHUNK_SIZE from .env.
+        - If not found, uses 500 as default.
+        - Defines how many words each document chunk contains.
+        - CHUNK_SIZE → How big each text piece should be.
+
+        Example:
+        - Document → Split into chunks of 500 words each
+
+
+(17) Chunk Overlap
+    CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 80))
+       - Reads CHUNK_OVERLAP from .env.
+       - If not found, uses 80 as default.
+       - Keeps 80 words repeated between consecutive chunks to preserve context.
+       - CHUNK_OVERLAP → How much text should be repeated between pieces to avoid losing context.
+
+    Example:
+    Chunk 1: Words 1–500
+    Chunk 2: Words 421–920
+            ↑
+        80 words overlap
+
+(18) Vector Search Results (FAISS)
+    VECTOR_TOP_K = int(os.getenv("VECTOR_TOP_K", 10))
+        - Reads VECTOR_TOP_K from .env.
+        - Default value is 10.
+        - Retrieves the top 10 most similar chunks from the FAISS vector database.
+
+    Example:
+        User Query
+            ↓
+        FAISS Search
+            ↓
+        Top 10 similar chunks
+
+(19) BM25 Keyword Search Results
+    BM25_TOP_K = int(os.getenv("BM25_TOP_K", 10))
+
+        - Reads BM25_TOP_K from .env.
+        - Default value is 10.
+        - Retrieves the top 10 matching chunks based on keyword search.
+
+    Example:
+        User Query
+            ↓
+        BM25 Search
+            ↓
+        Top 10 keyword-matching chunks
+
+(20) Final Selected Chunks
+    FINAL_TOP_N = int(os.getenv("FINAL_TOP_N", 4))
+        - Reads FINAL_TOP_N from .env.
+        - Default value is 4.
+        - After combining FAISS and BM25 results and reranking them, the best 4 chunks are selected and sent to the LLM.
+
+    Example Flow:
+        FAISS → 10 chunks
+        BM25  → 10 chunks
+                ↓
+            Combine + Rerank
+                ↓
+            Top 4 chunks
+                ↓
+                LLM Answer
+
+
+    In simple words:
+        VECTOR_TOP_K → Number of chunks taken from semantic search (FAISS).
+        BM25_TOP_K → Number of chunks taken from keyword search (BM25).
+        FINAL_TOP_N → Best chunks sent to the LLM after reranking.
+
+        This helps your RAG chatbot retrieve enough information while keeping the LLM context small and relevant.
+
+(21) Reranker Confidence Threshold
+    RERANK_CONFIDENCE_THRESHOLD = float(os.getenv("RERANK_CONFIDENCE_THRESHOLD", 0.35))
+        
+        - Reads RERANK_CONFIDENCE_THRESHOLD from .env.
+        - Default value is 0.35.
+        - Defines the minimum confidence score required from the reranker to trust the retrieved documents.
+
+    Example:
+        Reranker Score = 0.80  → Use documents and answer from RAG ✅
+        Reranker Score = 0.20  → Confidence is low ❌
+                                Perform web search instead
+
+    In simple words:
+        - Higher value → More strict, uses documents only when highly relevant.
+        - Lower value → More relaxed, uses documents more often.
+
+
+(22) Conversation History Limit
+    MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", 6))
+        - Reads MAX_HISTORY_TURNS from .env.
+        - Default value is 6.
+        - Controls how many previous chat exchanges are remembered and sent to the LLM.
+
+    Example:
+        User: What is .NET?
+        Bot: .NET is a development platform.
+
+    User: Who created it?
+        The chatbot uses the previous conversation to understand that "it" means .NET.
+        If the history limit is 6, only the latest 6 user-bot interactions are kept.
+     In simple words:
+        More turns → Better conversation context but higher token usage.
+        Fewer turns → Lower cost but less memory.
+
+(23) Web Search Maximum Results
+    WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", 5))
+        
+        - Reads WEB_SEARCH_MAX_RESULTS from .env.
+        - Default value is 5.
+        - Defines how many web search results are retrieved when the RAG documents do not have enough confidence.
+
+    Example Flow:
+        User Question
+            ↓
+        Search documents
+            ↓
+        Reranker score < 0.35
+            ↓
+        Web Search
+            ↓
+        Take top 5 web results
+            ↓
+        Generate final answer
+
+    In simple words:
+        RERANK_CONFIDENCE_THRESHOLD → Minimum score needed to trust RAG documents.
+        MAX_HISTORY_TURNS → Number of previous conversations the chatbot remembers.
+        WEB_SEARCH_MAX_RESULTS → Number of web pages/results taken when falling back to web search.
+
+        These settings control the accuracy, memory, and external knowledge capability of your RAG chatbot.

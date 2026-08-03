@@ -1,0 +1,30 @@
+
+Hybrid retrieval pipeline:
+
+  1. Semantic search via FAISS (catches paraphrases / meaning-based matches)
+  2. Keyword search via BM25 (catches exact terms, codes, names that
+     embeddings often miss)
+  3. Merge + dedupe candidates from both
+  4. Cross-encoder reranking for a final, more accurate relevance ordering
+
+(1) _embedder = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
+    - Creates a new Sentence Transformer embedding model using the model name stored in configuration.
+    - "The cat is sleeping"
+        ↓
+      [0.021, -0.115, 0.834, ...]
+
+(2) get_reranker()
+    - This function works exactly like get_embedder(), but instead of loading an embedding model,
+        it loads a reranker model using CrossEncoder.
+    - This model is trained to score how relevant a piece of text is to a query.
+    - This may take some time because the AI model is loaded into memory. 
+      
+    - | Feature              | Embedder (`SentenceTransformer`) | Reranker (`CrossEncoder`)      |
+| -------------------- | -------------------------------- | ------------------------------ |
+| Purpose              | Convert text into vectors        | Score query-document relevance |
+| Input                | One text at a time               | Query + document pair          |
+| Output               | Embedding vector                 | Relevance score                |
+| Speed                | Very fast                        | Slower                         |
+| Used for             | Initial retrieval                | Improving search results       |
+| Works with vector DB | Yes                              | No                             |
+| Example              | `all-MiniLM-L6-v2`               | `ms-marco-MiniLM-L-6-v2`       |

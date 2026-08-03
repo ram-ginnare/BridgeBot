@@ -1,0 +1,41 @@
+- cretea new repo on github.com
+- Clone from VS code - source control >> clone on any folder
+- Now cretae README file and push try
+
+
+Before push change the .venv using below commands
+- cretae README file using - echo # RAGApp > README.md git add README.md
+- (base) PS C:\AI Projects\RAGApp> conda deactivate  
+- PS C:\AI Projects\RAGApp>  pip install uv
+- PS C:\AI Projects\RAGApp> uv venv 
+- PS C:\AI Projects\RAGApp> .venv\Scripts\activate
+- (RAGApp) PS C:\AI Projects\RAGApp> now venv created
+
+Add .enve file and Requirements.txt
+- (RAGApp) PS C:\AI Projects\RAGApp> uv pip install -r .\requirements.txt
+
+-uv run streamlit run app.py ----run
+- Cntl + C exit
+Add all the required project files
+
+
+Run the app
+uv run streamlit run app.py  
+
+
+error fixes
+(RAGApp) PS C:\AI Projects\RAGApp> uv pip install torchvision   
+
+if groq key not works even its correct check directly using below command, and add config.py and check_setup.py torchvision
+to override if somewhere used.
+python check_setup.py
+
+
+Remove duckduckgo not supported after 2023 use ddgs
+(RAGApp) PS C:\AI Projects\RAGApp>
+uv pip uninstall duckduckgo-search -y
+uv pip install -U ddgs   
+python check_web_search.py  ##check in this way before run application validate
+python -m pip show ddgs   
+
+

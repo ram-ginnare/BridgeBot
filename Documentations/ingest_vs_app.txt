@@ -1,0 +1,169 @@
+(1) This function reads a PDF file, extracts text from each page, and stores the text along with 
+its page number.
+
+It is commonly used in a RAG chatbot document ingestion pipeline before chunking, embedding, 
+and storing data in a vector database.
+
+load_pdf(), load_docx, load_txt, load_csv, LOADERS, load_document
+
+(2) below code work
+    def load_document(path): 
+      #load_document("data/Python_Guide.pdf")
+
+        ext = os.path.splitext(path)[1].lower()
+            #ext = ".pdf"
+
+        if ext not in LOADERS:
+            raise ValueError(f"Unsupported file type: {ext}")
+        return LOADERS[ext](path)
+
+(3) Chunking - do word chunking
+
+    - chunk_text() used in Index building  build_index()
+    - CHUNK_OVERLAP = 80
+      It means: Each chunk will have approximately 500 words.
+      The last 80 words of one chunk will appear again at the start of the next chunk.
+
+      This improves the quality and accuracy of answers in your RAG chatbot.
+
+(4) Index building
+    - chunk_text() will be used here to create build_index
+    - Build a FAISS vector index + BM25 index from a list of document paths.
+    - Returns (faiss_index, chunk_metadata_list, bm25_index).
+    - all_chunks and all_metadata looks like
+        chunks:   
+        [
+        "Python is easy to learn.",
+        "It is used for AI and web development."
+        ]
+
+        Metadata:
+        [
+            {
+                "source": "Python.pdf",
+                "page": 1,
+                "chunk_id": 0,
+                "text": "Python is easy to learn."
+            },
+            {
+                "source": "Python.pdf",
+                "page": 1,
+                "chunk_id": 1,
+                "text": "It is used for AI and web development."
+            }
+        ]
+
+(5) Embeddings and FAISS indexing
+
+    - This code creates a FAISS vector index and stores all document embeddings in it for 
+       fast similarity search in a RAG application.
+    - embeddings is a 2D array of document vectors.
+    - .shape[1] gives the number of columns, i.e., the size of each embedding vector.
+
+            embeddings = [
+            [0.12, 0.45, 0.78],
+            [0.33, 0.21, 0.90],
+            [0.56, 0.67, 0.10]
+        ]
+
+        (3, 3)
+        3 rows → 3 document chunks
+        3 columns → each vector has 3 dimensions
+
+        So:  dim = 3
+
+    -     Create FAISS Index 
+       index = faiss.IndexFlatIP(dim)
+
+       FAISS Index (dimension = 3)
+          |
+          ↓
+        Can store vectors like:
+        [0.12, 0.45, 0.78]
+        [0.33, 0.21, 0.90]
+        [0.56, 0.67, 0.10]
+
+    - Add Embeddings to FAISS
+      Stores all document embeddings inside the FAISS index
+      index.add(embeddings)
+      
+      FAISS Index:
+        Vector 1 → [0.12, 0.45, 0.78]
+        Vector 2 → [0.33, 0.21, 0.90]
+        Vector 3 → [0.56, 0.67, 0.10]
+
+(6) BM25 keyword index
+    - This code creates a BM25 keyword search index, saves the FAISS index, metadata, and BM25 index 
+      to disk, and returns them for later use in the RAG chatbot
+    - Create Tokenized Corpus for BM25
+    - tokenized_corpus = [c.lower().split() for c in all_chunks]
+        bm25 = BM25Okapi(tokenized_corpus)
+      Takes every chunk in all_chunks. Converts text to lowercase using .lower(). Splits 
+       the sentence into individual words using .split().
+
+    all_chunks:
+            [
+                "Python is Easy",
+                "AI uses Python"
+            ]
+
+    After processing:
+            tokenized_corpus = [
+                ["python", "is", "easy"],
+                ["ai", "uses", "python"]
+            ]
+
+    - BM25 works on individual words (tokens), so text must be tokenized first.
+    - Creates a BM25 search index using the tokenized chunks.
+    - It enables keyword-based searching
+
+        Example:
+            User Query: "Python AI"
+            BM25 checks chunks containing:
+            - python
+            - ai
+            Returns the most relevant chunks.
+
+(7) Check Whether Data Should Be Saved
+    if persist: 
+        - Checks if the indexes and metadata should be stored permanently.
+        - If persist=True, everything is saved to disk.
+        - If persist=False, data remains only in memory.
+        - Create Vector Store Folder 
+           os.makedirs(config.VECTORSTORE_DIR, exist_ok=True)
+            Before:
+                Project/
+                └── app.py
+
+            After:
+                Project/
+                ├── app.py
+                └── vectorstore/
+        - Save FAISS Index (Saves the FAISS vector database to a file.)
+           faiss.write_index(index, config.FAISS_INDEX_PATH)
+           
+           Contains Embeddings of all document chunks.
+
+        - Save Metadata (Saves chunk information using pickle.)
+          with open(config.METADATA_PATH, "wb") as f:
+            pickle.dump(all_metadata, f)
+
+                [
+                    {
+                        "source": "Python.pdf",
+                        "page": 1,
+                        "chunk_id": 0,
+                        "text": "Python is easy to learn"
+                    }
+                ]
+
+            vectorstore/metadata.pkl
+
+        - Save BM25 Index (Saves the BM25 keyword search index.)
+           vectorstore/bm25.pkl
+
+(8) return index, all_metadata, bm25
+
+
+
+
