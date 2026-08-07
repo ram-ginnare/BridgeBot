@@ -1,0 +1,21 @@
+[
+    {
+        "document_id": "e4c39edf-307d-4ab9-b914-5bc9c570ed83",
+        "document_name": "Movie_Sholay.pdf",
+        "owner": "ram",
+        "department": "AI",
+        "team": "BridgeBot",
+        "visibility": "Private",
+        "uploaded_by": "ram",
+        "uploaded_date": "2026-08-05 23:04:21",
+        "source_type": null,
+        "source_url": null,
+        "category": "Movie",
+        "pages": 4,
+        "chunks": 6,
+        "file_size_mb": 3.96,
+        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "vector_db": "ChromaDB",
+        "status": "Indexed"
+    }
+]

@@ -1,16 +1,77 @@
-streamlit
-groq
-faiss-cpu
-sentence-transformers
-rank-bm25
-pypdf
-python-docx
-#duckduckgo-search
-ddgs
-python-dotenv
-numpy
-torchvision
+# ----------------------------
+# Streamlit
+# ----------------------------
+streamlit==1.49.1
+
+# ----------------------------
+# LangChain
+# ----------------------------
+langchain==0.3.27
+langchain-core==0.3.74
+langchain-community==0.3.27
+langchain-text-splitters==0.3.9
+
+# ----------------------------
+# Groq
+# ----------------------------
+langchain-groq==0.3.7
+groq==0.31.0
+
+# ----------------------------
+# HuggingFace Embeddings
+# ----------------------------
+langchain-huggingface==0.3.1
+sentence-transformers==5.1.0
+transformers==4.55.4
+torch>=2.2.0
+
+# ----------------------------
+# Vector Database
+# ----------------------------
+chromadb==1.0.20
+
+# ----------------------------
+# PDF Processing
+# ----------------------------
+pypdf==6.0.0
+
+# ----------------------------
+# Environment Variables
+# ----------------------------
+python-dotenv==1.1.1
+
+# ----------------------------
+# Utilities
+# ----------------------------
+numpy==2.3.2
+requests==2.32.5
+httpx==0.28.1
+tiktoken==0.11.0
+# ----------------------------
+# web search
+# ----------------------------
+
+duckduckgo-search>=8.1.1
+
+# ----------------------------
+# Hybrid search
+# ----------------------------
+
+rank-bm25==0.2.2
+joblib==1.5.1
+
+# ----------------------------
+# Cross-Encoder
+# ----------------------------
+sentence-transformers==5.1.0
+
+# ----------------------------
+# password encription
+# ----------------------------
+bcrypt==4.2.0
 
 
 
-
+#---Test Github URL-------------
+# https://raw.githubusercontent.com/ram-ginnare/BridgeBot/main/source/Movie_Dharam%20Veer.pdf
+#-------------------------------

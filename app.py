@@ -1,152 +1,417 @@
-"""
-Streamlit chat UI for the Groq-powered RAG chatbot.
-
-Run with: streamlit run app.py
-"""
-
+import json
 import os
+import pandas as pd
 import streamlit as st
-import config
-import ingest
+from ingest import ingest_github_pdf
+from ingest import ingest_google_drive_pdf
+from ingest import ingest_pdf
+from query import ask
+import time
+from utils.logger import (rag_logger, performance_logger, error_logger, log_performance)
+#login
+from auth.login import login_page
+from auth.session import (is_logged_in, logout)
 
-st.set_page_config(page_title="RAG Chatbot (Groq)", page_icon="💬", layout="wide")
+st.set_page_config(
+    page_title="BridgeBot",
+    layout="wide"
+)
 
-# Fail fast with a clear message if the Groq key isn't set up correctly,
-# instead of letting the first chat message crash with a raw 401 error.
-try:
-    config.validate_groq_key()
-except RuntimeError as e:
-    st.error(f"⚠️ Groq API key problem:\n\n{e}")
+# -------------------------------
+# Authentication
+# -------------------------------
+
+if not is_logged_in():
+
+    login_page()
+
     st.stop()
 
-import rag_chain
+# -------------------------------
+# Logged-in User
+# -------------------------------
 
-if "history" not in st.session_state:
-    st.session_state.history = []  # list of {"user", "assistant", "sources", "used_web_fallback"}
-if "index_data" not in st.session_state:
-    st.session_state.index_data = ingest.load_index()  # (faiss_index, metadata, bm25) or None
-
-
-
-
-
-# ==================== Sidebar: knowledge base management ====================
-
-st.sidebar.title("📁 Knowledge Base")
-
-uploaded_files = st.sidebar.file_uploader(
-    "Upload documents (PDF, DOCX, TXT, CSV)",
-    type=["pdf", "docx", "txt", "csv"],
-    accept_multiple_files=True,
+st.sidebar.success(
+    f"👤 {st.session_state.user}"
 )
 
-if st.sidebar.button("Build / Update Knowledge Base", use_container_width=True):
-    if not uploaded_files:
-        st.sidebar.warning("Please upload at least one file first.")
-    else:
-        os.makedirs(config.DATA_DIR, exist_ok=True)
-        saved_paths = []
-        for f in uploaded_files:
-            path = os.path.join(config.DATA_DIR, f.name)
-            with open(path, "wb") as out:
-                out.write(f.getbuffer())
-            saved_paths.append(path)
-
-        with st.spinner("Indexing documents... this can take a minute for large files."):
-            try:
-                index, metadata, bm25 = ingest.build_index(saved_paths)
-                st.session_state.index_data = (index, metadata, bm25)
-                st.sidebar.success(f"Indexed {len(saved_paths)} file(s) -> {len(metadata)} chunks.")
-            except Exception as e:
-                st.sidebar.error(f"Failed to build index: {e}")
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Settings")
-enable_web_fallback = st.sidebar.checkbox(
-    "Enable web search fallback",
-    value=True,
-    help="If the documents don't contain a good answer, search the web instead of just refusing.",
+st.sidebar.write(
+    f"Role : {st.session_state.role}"
 )
 
-source_filter = None
-if st.session_state.index_data:
-    _, metadata, _ = st.session_state.index_data
-    sources = sorted(set(m["source"] for m in metadata))
-    source_choice = st.sidebar.selectbox("Filter by document (optional)", ["All"] + sources)
-    source_filter = None if source_choice == "All" else source_choice
+st.sidebar.divider()
 
-if st.sidebar.button("🗑️ Clear conversation", use_container_width=True):
-    st.session_state.history = []
+if st.sidebar.button("🚪 Logout"):
+
+    logout()
+
     st.rerun()
 
+st.sidebar.divider()
+
+# ---------------------------------------------------
+# Configuration
+# ---------------------------------------------------
+
+PDF_FOLDER = "pdfs"
+REGISTRY_FILE = "document_registry.json"
+
+os.makedirs(PDF_FOLDER, exist_ok=True)
+
+st.set_page_config(
+    page_title="PDF Chat using Groq",
+    page_icon="📄",
+    layout="wide"
+)
+
+# ---------------------------------------------------
+# Session State
+# ---------------------------------------------------
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 
+# ---------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------
+
+def load_uploaded_documents():
+
+    if not os.path.exists(REGISTRY_FILE):
+        return pd.DataFrame()
+
+    with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    rag_logger.info("Loaded %d documents from registry", len(data) )
+
+    return pd.DataFrame(data)
 
 
-# ==================== Main chat area ====================
+def knowledge_base_ready():
 
-st.title("💬 RAG Chatbot")
-st.caption("Groq LLM • FAISS + BM25 hybrid retrieval • cross-encoder reranking • web fallback")
+    ud = load_uploaded_documents()
 
-if not st.session_state.index_data:
-    st.info("👈 Upload documents and click **Build / Update Knowledge Base** to get started.")
+    return not ud.empty
 
 
-def render_sources(used_web_fallback, sources):
-    if used_web_fallback:
-        st.caption("🌐 This answer used a web search — it is not based on your uploaded documents.")
-        if sources:
-            with st.expander("🔗 Web sources"):
-                for s in sources:
-                    st.markdown(f"- [{s.get('title', 'source')}]({s.get('href', '')})")
-    elif sources:
-        with st.expander("📑 Document sources"):
-            for s in sources:
-                page_info = f", page {s['page']}" if s.get("page") else ""
-                st.markdown(f"**{s['source']}{page_info}** — relevance {s.get('rerank_score', 0):.2f}")
-                st.text(s["text"][:300] + ("..." if len(s["text"]) > 300 else ""))
+# ---------------------------------------------------
+# Sidebar
+# ---------------------------------------------------
+
+with st.sidebar:
+
+    st.title("📚 Knowledge Base")
+
+    uploaded_file = st.file_uploader(
+        "Upload PDF",
+        type=["pdf"]
+    )
+
+    if uploaded_file is not None:
+
+        pdf_path = os.path.join(
+            PDF_FOLDER,
+            uploaded_file.name
+        )
+
+        with open(pdf_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        st.success("PDF uploaded successfully.")
+
+        rag_logger.info("PDF Uploaded : %s", uploaded_file.name)
+
+        if st.button("🚀 Prepare Knowledge Base"):
+
+            with st.spinner("Creating Knowledge Base..."):
+
+                rag_logger.info("Preparing Knowledge Base : %s", uploaded_file.name)
+
+                start = time.perf_counter()
+
+                owner = st.session_state.user
+                department = st.session_state.department
+                team = st.session_state.team
+                # TODO:  take visibility from UI in dropdown
+                visibility = "Private"
+
+                status = ingest_pdf(pdf_path,owner=owner, department=department, team=team, visibility=visibility)
+
+                elapsed = time.perf_counter() - start
+
+                rag_logger.info("Knowledge Base Status : %s", status)
+
+                performance_logger.info("Knowledge Base Creation Time : %.3f sec", elapsed)
+
+            st.success("Knowledge Base Ready!")
+
+            st.rerun()
+
+    st.divider()
+
+    st.sidebar.subheader("GitHub PDF")
+
+    github_url = st.sidebar.text_input(
+        "GitHub Raw PDF URL"
+    )
+
+    if st.sidebar.button("Prepare KB From GitHub"):
+
+        if github_url.strip():
+
+            with st.spinner("Preparing Knowledge Base..."):
+
+                status = ingest_github_pdf(github_url)
+
+            if status:
+
+                st.success("Knowledge Base Created Successfully")
+
+            else:
+
+                st.error("Knowledge Base Creation Failed")
 
 
-for turn in st.session_state.history:
-    with st.chat_message("user"):
-        st.write(turn["user"])
-    with st.chat_message("assistant"):
-        st.write(turn["assistant"])
-        render_sources(turn.get("used_web_fallback", False), turn.get("sources", []))
+    st.divider()
 
-user_query = st.chat_input("Ask a question about your documents...")
+    st.sidebar.subheader("Google Drive PDF")
 
-if user_query:
-    with st.chat_message("user"):
-        st.write(user_query)
+    drive_url = st.sidebar.text_input(
+        "Public Google Drive PDF URL"
+    )
 
-    if not st.session_state.index_data:
-        result = {
-            "answer": "Please upload and index documents first using the sidebar.",
-            "sources": [],
-            "used_web_fallback": False,
-            "groundedness": None,
-        }
+    if st.sidebar.button("Prepare KB From Google Drive"):
+
+        if drive_url.strip():
+
+            with st.spinner("Preparing Knowledge Base..."):
+
+                status = ingest_google_drive_pdf(drive_url)
+
+            if status:
+
+                st.success("Knowledge Base Created Successfully")
+
+            else:
+
+                st.error("Knowledge Base Creation Failed")
+
+
+    st.divider()
+
+    st.subheader("📚 Uploaded Documents")
+
+    uploaded_documents = load_uploaded_documents()
+
+    if not uploaded_documents.empty:
+
+        st.dataframe(
+            uploaded_documents,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.success(f"Knowledge Base Ready ({len(uploaded_documents)} document(s))")
+
+        selected_documents = st.sidebar.multiselect(
+
+            "Select Documents",
+
+            uploaded_documents["document_name"].tolist()
+
+        )
+
+        selected_category = st.sidebar.selectbox(
+            "Category",
+            ["All"] +
+            sorted(uploaded_documents["category"].unique())
+        )
+
+        if selected_category == "All":
+            selected_category = None
+
     else:
-        index, metadata, bm25 = st.session_state.index_data
-        with st.spinner("Thinking..."):
-            result = rag_chain.answer_query(
-                user_query,
-                index,
-                metadata,
-                bm25,
-                history=st.session_state.history,
-                source_filter=source_filter,
-                enable_web_fallback=enable_web_fallback,
-            )
+        st.warning("No documents uploaded.")
+
+    st.divider()
+
+    if st.button("🗑 Clear Chat"):
+
+        st.session_state.messages = []
+
+        rag_logger.info("Chat History Cleared")
+
+        st.rerun()
+
+
+# ---------------------------------------------------
+# Main Screen
+# ---------------------------------------------------
+
+st.title("📄 Chat with PDF")
+
+st.caption(
+    "Groq + LangChain + ChromaDB + HuggingFace Embeddings"
+)
+
+# ---------------------------------------------------
+# Display Chat History
+# ---------------------------------------------------
+
+for message in st.session_state.messages:
+
+    with st.chat_message(message["role"]):
+
+        st.markdown(message["content"])
+
+
+# ---------------------------------------------------
+# Chat Input
+# ---------------------------------------------------
+use_web_search = st.checkbox(
+    "🌐 Enable Web Search",
+    value=False
+)
+rag_logger.info("Web Search Enabled : %s", use_web_search)
+
+question = st.chat_input(
+    "Ask anything about your documents...",
+    disabled=not knowledge_base_ready()
+)
+
+if question:
+
+    request_start = time.perf_counter()
+
+    rag_logger.info("=" * 80)
+
+    rag_logger.info( "New Question Received" )
+
+    rag_logger.info( "Question : %s", question )
+
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": question
+        }
+    )
+
+    with st.chat_message("user"):
+
+        st.markdown(question)
 
     with st.chat_message("assistant"):
-        st.write(result["answer"])
-        render_sources(result["used_web_fallback"], result["sources"])
 
-    st.session_state.history.append({
-        "user": user_query,
-        "assistant": result["answer"],
-        "sources": result["sources"],
-        "used_web_fallback": result["used_web_fallback"],
-    })
+        with st.spinner("Searching Knowledge Base..."):
+
+            query_start = time.perf_counter()
+            try:
+                result = ask( question, use_web_search=use_web_search, selected_documents=selected_documents,
+                    selected_category=selected_category )
+
+            except Exception as e:
+
+                error_logger.exception(f"Application exception : {e}")
+
+                st.error("Unexpected Error")
+
+            rag_logger.info( "Retrieved Documents : %s", ", ".join(result["documents"]) )
+
+            rag_logger.info( "Retrieved Pages : %s", result["pages"] )
+
+            rag_logger.info("Reranker : %s", result["reranker"])
+
+            rag_logger.info("Reranker Scores : %s", result["rerank_scores"])
+
+            rag_logger.info("Web Search Used : %s", result["web_used"])
+
+            if result["web_used"]:
+
+                rag_logger.info("Web Sources : %s", result["web_sources"])
+
+            rag_logger.info("Answer Length : %d characters", len(result["answer"]))
+
+            query_time = time.perf_counter() - query_start
+
+            performance_logger.info( "Query Processing Time : %.3f sec", query_time )
+
+        st.markdown(result["answer"])
+
+        with st.expander("📌 Sources Used", expanded=False):
+
+            st.write(f"**LLM :** {result['llm']}")
+
+            st.write(f"**Vector Database :** {result['vector_db']}")
+
+            st.write(f"**Documents :** {result['documents']}")
+
+            st.write(f"**Chunks size :** {result['chunks']}")
+
+            if result["pages"]:
+
+                pages = ", ".join(
+                    str(page + 1)
+                    for page in result["pages"]
+                )
+
+                st.write(f"**Pages :** {pages}")
+
+            else:
+
+                st.write("**Pages :** N/A")
+
+            if result["web_used"]:
+
+                st.write("**Web Search :** Used")
+
+                for url in result["web_sources"]:
+
+                    st.write(url)
+
+            else:
+
+                st.write("**Web Search :** Not Used")
+
+            # Cross encoder - Reranker score
+            st.write(f"**Reranker:** {result['reranker']}")
+
+            st.write("**Reranker Scores:**")
+
+            for score in result["rerank_scores"]:
+                st.write(f"{score:.4f}")
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": result["answer"]
+        }
+    )
+
+    total = time.perf_counter() - request_start
+
+    performance_logger.info("Total Request Time : %.3f sec", total)
+
+    rag_logger.info("=" * 80)
+
+
+# ---------------------------------------------------
+# Empty Knowledge Base Message
+# ---------------------------------------------------
+
+if not knowledge_base_ready():
+
+    st.info(
+        """
+### 📄 No Knowledge Base Found
+
+Please follow these steps:
+
+1. Upload one or more PDF documents.
+2. Click **🚀 Prepare Knowledge Base**.
+3. Wait until indexing is complete.
+4. Start asking questions.
+
+"""
+    )
