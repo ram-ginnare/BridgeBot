@@ -308,8 +308,16 @@ if question:
 
             query_start = time.perf_counter()
             try:
-                result = ask( question, use_web_search=use_web_search, selected_documents=selected_documents,
-                    selected_category=selected_category )
+                result = ask(
+                    question,
+                    use_web_search=use_web_search,
+                    selected_documents=selected_documents,
+                    selected_category=selected_category,
+                    owner=st.session_state.user,
+                    department=st.session_state.department,
+                    team=st.session_state.team,
+                    visibility="Private"
+                )
 
             except Exception as e:
 

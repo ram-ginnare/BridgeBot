@@ -44,7 +44,7 @@ cursor.execute(
         "2026-08-04 04:13:20",
         None,
         "AI",
-        "BridgeBot"
+        "BridgeBot",
     ),
 )
 

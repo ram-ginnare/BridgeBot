@@ -1,7 +1,8 @@
 import os
 import streamlit as st
 from dotenv import load_dotenv
-from langchain_community.tools import DuckDuckGoSearchRun
+# from langchain_community.tools import DuckDuckGoSearchRun
+from ddgs import DDGS
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
@@ -11,7 +12,7 @@ from reranker import rerank
 import time
 from utils.logger import (rag_logger, performance_logger, error_logger, log_performance)
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 # ------------------------------------
@@ -58,7 +59,8 @@ llm = ChatGroq(
 # DuckDuckGo Search
 # ------------------------------------
 
-search = DuckDuckGoSearchRun()
+# search = DuckDuckGoSearchRun()
+search = DDGS()
 
 # ------------------------------------
 # Ask Question
@@ -68,7 +70,11 @@ def ask(
         question,
         use_web_search=False,
         selected_documents=None,
-        selected_category=None
+        selected_category=None,
+        owner=None,
+        department=None,
+        team=None,
+        visibility="Private"
 ):
 
     request_start = time.perf_counter()
@@ -89,7 +95,11 @@ def ask(
         docs = hybrid_search(
             question=question,
             selected_documents=selected_documents,
-            selected_category=selected_category
+            selected_category=selected_category,
+            owner=owner,
+            department=department,
+            team=team,
+            visibility=visibility
         )
 
         performance_logger.info("Hybrid Search returned %d chunks in %.3f sec", len(docs), time.perf_counter() - start)
@@ -128,7 +138,7 @@ def ask(
                 doc.metadata.get("page", "Unknown")
             )
 
-            source = doc.metadata.get("document_id", "")
+            source = doc.metadata.get("document_name", "")
 
             if source:
                 documents.add(
@@ -155,7 +165,10 @@ def ask(
 
                 rag_logger.info("DuckDuckGo Search Started")
 
-                web_context = search.run(question)
+                # web_context = search.run(question)
+                with DDGS() as ddgs:
+                    web_results = list(ddgs.text(question, max_results=1))
+                    web_context = web_results[0]["body"]
 
                 performance_logger.info("Web Search completed in %.3f sec", time.perf_counter() - start)
 
@@ -175,7 +188,7 @@ def ask(
 
         if context.strip() == "":
 
-            logger.warning("No Context Found")
+            rag_logger.warning("No Context Found")
 
             return {
 
@@ -191,7 +204,7 @@ def ask(
 
                 "chunks": 0,
 
-                "metadata_filter": metadata_filter,
+                "metadata_filter": st.session_state.metadata_filter,
 
                 "web_used": use_web_search,
 
@@ -304,7 +317,13 @@ Answer
 
         }
 
-def bm25_search(question, k=5):
+def bm25_search(question, k=5,
+                selected_documents=None,
+                selected_category=None,
+                owner=None,
+                department=None,
+                team=None,
+                visibility=None):
 
     rag_logger.info("BM25 Search Started")
 
@@ -317,13 +336,67 @@ def bm25_search(question, k=5):
 
     docs = index["documents"]
 
-    query = question.lower().split()
+    filtered_documents = []
+    filtered_tokens = []
 
-    scores = bm25.get_scores(query)
+    for doc in docs:
+        metadata = doc.metadata
+        if selected_documents:
 
-    ranked = sorted(zip(scores, docs), reverse=True, key=lambda x: x[0])
+            if metadata.get("document_name") not in selected_documents:
+                continue
 
-    rag_logger.info("BM25 returned %d chunks", min(k, len(ranked)))
+        if selected_category:
+
+            if metadata.get("category") != selected_category:
+                continue
+
+        if owner:
+
+            if metadata.get("owner") != owner:
+                continue
+
+        if department:
+
+            if metadata.get("department") != department:
+                continue
+
+        if team:
+
+            if metadata.get("team") != team:
+                continue
+
+        if visibility:
+
+            if metadata.get("visibility") != visibility:
+                continue
+
+        filtered_documents.append(doc)
+        filtered_tokens.append(doc.page_content.lower().split())
+
+    bm25 = BM25Okapi(filtered_tokens)
+
+    # ------------------------------------------
+    # BM25 Search : code for return docs only with score > 0.10
+    # ------------------------------------------
+
+    query_tokens = question.lower().split()
+
+    scores = bm25.get_scores(query_tokens)
+
+    ranked = sorted(zip(scores, filtered_documents), key=lambda x: x[0], reverse=True)
+
+    rag_logger.info("BM25 Retrieved %d relevant documents (score > 0)", len(ranked))
+
+    # Log individual scores (optional)
+    for score, doc in ranked:
+
+        rag_logger.debug(
+            "BM25 Score: %.4f | Document: %s | Page: %s",
+            score,
+            doc.metadata.get("document_name"),
+            doc.metadata.get("page")
+        )
 
     return [doc for score, doc in ranked[:k]]
 
@@ -331,7 +404,11 @@ def bm25_search(question, k=5):
 def hybrid_search(
         question,
         selected_documents=None,
-        selected_category=None
+        selected_category=None,
+        owner=None,
+        department=None,
+        team=None,
+        visibility=None
 ):
 
     rag_logger.info("Hybrid Search Started")
@@ -346,7 +423,7 @@ def hybrid_search(
 
     if selected_documents:
         conditions.append({
-            "document": {
+            "document_name": {
                 "$in": selected_documents
             }
         })
@@ -359,6 +436,11 @@ def hybrid_search(
     if st.session_state.department:
         conditions.append({
             "department": st.session_state.department
+        })
+
+    if st.session_state.user:
+        conditions.append({
+            "uploaded_by": st.session_state.user
         })
 
     #TODO: update visibility condition
@@ -376,7 +458,7 @@ def hybrid_search(
         }
 
     rag_logger.info("Metadata Filter : %s", metadata_filter)
-
+    st.session_state.metadata_filter = metadata_filter
 
     if metadata_filter:
         dense_docs = vector_db.similarity_search(question, k=5, filter=metadata_filter)
@@ -385,10 +467,19 @@ def hybrid_search(
 
     rag_logger.info("Dense Search : %d chunks", len(dense_docs))
 
-    sparse_docs = bm25_search(question, k=20)
+    sparse_docs = bm25_search(
+        question,
+        k=20,
+        selected_documents=selected_documents,
+        selected_category=selected_category,
+        owner=owner,
+        department=department,
+        team=team,
+        visibility=visibility
+    )
 
     if selected_documents:
-        sparse_docs = [doc for doc in sparse_docs if doc.metadata.get("document") in selected_documents]
+        sparse_docs = [doc for doc in sparse_docs if doc.metadata.get("document_name") in selected_documents]
 
     if selected_category:
         sparse_docs = [doc for doc in sparse_docs if doc.metadata.get("category") == selected_category]

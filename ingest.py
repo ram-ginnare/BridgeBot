@@ -11,7 +11,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-# from models.document_metadata import create_document_metadata
+#from models.document_metadata import create_document_metadata
 import time
 import tempfile
 import requests
@@ -87,7 +87,7 @@ def ingest_pdf(pdf_path,
         # Duplicate Check
         # --------------------------------------------------------
 
-        if any(doc["name"] == document_name for doc in registry):
+        if any(doc["document_name"] == document_name for doc in registry):
 
             logger.warning("Duplicate document detected : %s", document_name)
 
@@ -152,7 +152,7 @@ def ingest_pdf(pdf_path,
 
             chunk.metadata["document_id"] = document_id
 
-            chunk.metadata["document"] = document_name
+            chunk.metadata["document_name"] = document_name
 
             chunk.metadata["owner"] = owner
 
